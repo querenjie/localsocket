@@ -148,5 +148,7 @@ public class RabbitMQUtil {
         statusMessageCarrier.setSubject(subject);
 
         channelForSendStatusMsg.basicPublish("", rabbitMQConf.getQueueName() + "_status_toserver", null, SerializationUtils.serialize(statusMessageCarrier));
+        System.out.println("已向服务器端发送消息：" + statusMessageCarrier.toString());
+        channelForSendStatusMsg.close();
     }
 }

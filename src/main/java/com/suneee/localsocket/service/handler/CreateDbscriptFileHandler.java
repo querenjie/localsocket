@@ -128,7 +128,6 @@ public class CreateDbscriptFileHandler extends AbstractHandler {
                 description = description.replaceAll(",", "，");
                 description = description.replaceAll("\n", "。");
                 description = description.replaceAll("\r", "。");
-                System.out.println(description);
 
                 String lineStr = "," + dir + "," + fileName + "," + dbname + "," + description + "," + applier;
                 contentList.add(lineStr);
@@ -152,11 +151,14 @@ public class CreateDbscriptFileHandler extends AbstractHandler {
 
         List<DBScriptInfoForFileGenerate> filteredDBScriptInfoForFileGenerateList = filterDBScriptInfoForFileGenerate(parentDir, totalDBScriptInfoForFileGenerate);
         if (filteredDBScriptInfoForFileGenerateList != null) {
+            //用于存放一下目录下的文件名，以便能正确生成新文件的序号
+            Map<String, Integer> fileNameTempMap = new HashMap<String, Integer>();
             for (DBScriptInfoForFileGenerate dbScriptInfoForFileGenerate : filteredDBScriptInfoForFileGenerateList) {
                 String applier = dbScriptInfoForFileGenerate.getApplier();
                 String dbname = dbScriptInfoForFileGenerate.getDbname();
+
                 //生成文件名
-                String newFileName = generateFileName(fileNameList, applier, dbname);
+                String newFileName = generateFileName(fileNameList, applier, dbname, fileNameTempMap);
                 //生成文件
                 String newFilePath = newDir + "/" + newFileName;
                 List<String> sqlList = dbScriptInfoForFileGenerate.getSubsqlList();
@@ -201,25 +203,31 @@ public class CreateDbscriptFileHandler extends AbstractHandler {
      * @param dbname
      * @return
      */
-    private String generateFileName(List<String> fileNameList, String applier, String dbname) {
-        int maxSeq = 0;
-        if (fileNameList != null) {
-            for (String fileName : fileNameList) {
-                if (fileName.indexOf(applier + "_" + dbname) == 0) {
-                    //如果找到了有前缀同名的文件，然后先去除文件的扩展名
-                    int dotPostion = fileName.indexOf(".");
-                    if (dotPostion > (applier + "_" + dbname).length()) {
-                        fileName = fileName.substring(0, dotPostion);
-                        String seqString = fileName.substring((applier + "_" + dbname).length() + 1);
-                        int seq = Integer.parseInt(seqString);
-                        if (seq > maxSeq) {
-                            maxSeq = seq;
+    private String generateFileName(List<String> fileNameList, String applier, String dbname, Map<String, Integer> fileNameTempMap) {
+        Integer seq = fileNameTempMap.get(applier + "_" + dbname);
+        if (seq == null) {
+            int maxSeq = 0;
+            if (fileNameList != null) {
+                for (String fileName : fileNameList) {
+                    if (fileName.indexOf(applier + "_" + dbname) == 0) {
+                        //如果找到了有前缀同名的文件，然后先去除文件的扩展名
+                        int dotPostion = fileName.indexOf(".");
+                        if (dotPostion > (applier + "_" + dbname).length()) {
+                            fileName = fileName.substring(0, dotPostion);
+                            String seqString = fileName.substring((applier + "_" + dbname).length() + 1);
+                            int seqInt = Integer.parseInt(seqString);
+                            if (seqInt > maxSeq) {
+                                maxSeq = seqInt;
+                            }
                         }
                     }
                 }
             }
+            fileNameTempMap.put(applier + "_" + dbname, maxSeq + 1);
+        } else {
+            fileNameTempMap.put(applier + "_" + dbname, seq.intValue() + 1);
         }
-        String strMaxSeq = String.valueOf(maxSeq + 1);
+        String strMaxSeq = String.valueOf(fileNameTempMap.get(applier + "_" + dbname));
         String newFileName = applier + "_" + dbname + "_" + StringOperUtil.padLeft(strMaxSeq, 4, "0") + ".sql";
 
         return newFileName;
@@ -238,6 +246,7 @@ public class CreateDbscriptFileHandler extends AbstractHandler {
             String mappingDir = entry.getValue();
             if (parentDir.equalsIgnoreCase(mappingDir)) {
                 projectCode = entry.getKey();
+                break;
             }
         }
 

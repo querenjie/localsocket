@@ -1,6 +1,5 @@
 package com.suneee.localsocket;
 
-import com.suneee.localsocket.service.ConsumerStub;
 import com.suneee.localsocket.service.InitService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.CommandLineRunner;
