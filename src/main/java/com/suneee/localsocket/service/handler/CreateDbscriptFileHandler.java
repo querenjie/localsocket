@@ -54,17 +54,19 @@ public class CreateDbscriptFileHandler extends AbstractHandler {
      */
     @Override
     protected void handleDBScriptFile() {
+        //根据服务器端传过来的数据，可以得出需要分别向哪些目录下写文件
         Set<String> dirs = getDirs();
         if (dirs != null && dirs.size() > 0) {
             Iterator<String> iterator = dirs.iterator();
+            //依次向每个目录下写文件
             while (iterator.hasNext()) {
                 String dir = iterator.next();
                 //svn update更新本地的目录
                 svnUpdateDirs(dir);
-                //创建和返回日期的目录
+                //创建和返回日期的目录，格式为YYYY-MM-DD
                 String newDir = createAndGetDir(dir);
                 System.out.println("生成目录" + newDir);
-                //列出目录下的文件名
+                //列出目录下已有的文件名
                 List<String> fileNameList = getFileNameList(newDir);
                 System.out.println("该目录下的原有文件有：");
                 if (fileNameList != null) {
@@ -73,25 +75,26 @@ public class CreateDbscriptFileHandler extends AbstractHandler {
                     }
                 }
                 System.out.println("即将生成以下文件");
-                Map<String, DBScriptInfoForFileGenerate> newFilesMap = null;
+                List<String> generatedFileNames = null;
                 try {
-                    //newFilesMap是文件名全路径和脚本对象的对应关系，可用于生成csv文件
-                    newFilesMap = generateFiles(dir, newDir, totalDBScriptInfoForFileGenerate);
+                    //generatedFileNames是文件名全路径，可用于生成csv文件
+                    //dir就是parent dir, newDir就是parent dir / 日期的目录
+                    generatedFileNames = generateFiles(dir, newDir, totalDBScriptInfoForFileGenerate);
                 } catch (IOException e) {
                     System.out.println("生成文件失败，进程终止。");
                     resultStatusInfoList.add("生成文件失败，进程终止。");
                     e.printStackTrace();
                     return;
                 }
-                if (newFilesMap != null) {
-                    for (Map.Entry<String, DBScriptInfoForFileGenerate> entry : newFilesMap.entrySet()) {
-                        System.out.println("已生成文件：" + entry.getKey());
-                        resultStatusInfoList.add("已生成文件：" + entry.getKey());
+                if (generatedFileNames != null) {
+                    for (String fileName : generatedFileNames) {
+                        System.out.println("已生成文件：" + fileName);
+                        resultStatusInfoList.add("已生成文件：" + fileName);
                     }
                 }
                 //生成csv文件
                 try {
-                    generateCsvFile(newDir, newFilesMap);
+                    generateCsvFile(newDir, generatedFileNames);
                     System.out.println("已生成new_generated.csv文件");
                     resultStatusInfoList.add("已生成new_generated.csv文件");
                 } catch (IOException e) {
@@ -107,28 +110,21 @@ public class CreateDbscriptFileHandler extends AbstractHandler {
     /**
      * 生成CSV文件
      * @param newDir
-     * @param newFilesMap
+     * @param generatedFileNames
      * @throws IOException
      */
-    private void generateCsvFile(String newDir, Map<String, DBScriptInfoForFileGenerate> newFilesMap) throws IOException {
+    private void generateCsvFile(String newDir, List<String> generatedFileNames) throws IOException {
         String csvFileName = "new_generated.csv";
         List<String> contentList = new ArrayList<String>();
-        if (newFilesMap != null) {
-            for (Map.Entry<String, DBScriptInfoForFileGenerate> entry : newFilesMap.entrySet()) {
-                String filePath = entry.getKey();
-                DBScriptInfoForFileGenerate dbScriptInfoForFileGenerate = entry.getValue();
-
+        if (generatedFileNames != null) {
+            for (String filePath : generatedFileNames) {
                 String[] seperatedFilePath = filePath.split("/");
-                String fileName = seperatedFilePath[seperatedFilePath.length - 1];
-                String dir = seperatedFilePath[seperatedFilePath.length -2];
-                String applier = dbScriptInfoForFileGenerate.getApplier();
-                String description = dbScriptInfoForFileGenerate.getDescription();
-                String dbname = dbScriptInfoForFileGenerate.getDbname();
-
-                description = description.replaceAll(",", "，");
-                description = description.replaceAll("\n", "。");
-                description = description.replaceAll("\r", "。");
-
+                int arrLength = seperatedFilePath.length;
+                String fileName = seperatedFilePath[arrLength - 1];
+                String dir = seperatedFilePath[arrLength -2];
+                String dbname = fileName.substring(0, fileName.indexOf("_"));
+                String description = " ";
+                String applier = "ERP";
                 String lineStr = "," + dir + "," + fileName + "," + dbname + "," + description + "," + applier;
                 contentList.add(lineStr);
             }
@@ -137,43 +133,77 @@ public class CreateDbscriptFileHandler extends AbstractHandler {
         }
     }
     /**
-     * 生成文件，返回文件名全路径和脚本对象的对应关系
+     * 生成文件，返回文件名全路径
      * @param parentDir
      * @param newDir
      * @param totalDBScriptInfoForFileGenerate
      * @return
      */
-    private Map<String, DBScriptInfoForFileGenerate> generateFiles(String parentDir, String newDir, TotalDBScriptInfoForFileGenerate totalDBScriptInfoForFileGenerate) throws IOException {
-        Map<String, DBScriptInfoForFileGenerate> resultMap = new HashMap<String, DBScriptInfoForFileGenerate>();
+    private List<String> generateFiles(String parentDir, String newDir, TotalDBScriptInfoForFileGenerate totalDBScriptInfoForFileGenerate) throws IOException {
+        List<String> resultList = new ArrayList<String>();
 
         //首先获取newDir下的所有文件名
         List<String> fileNameList = getFileNameList(newDir);
-
+        //过滤出属于当前父目录的脚本
         List<DBScriptInfoForFileGenerate> filteredDBScriptInfoForFileGenerateList = filterDBScriptInfoForFileGenerate(parentDir, totalDBScriptInfoForFileGenerate);
         if (filteredDBScriptInfoForFileGenerateList != null) {
-            //用于存放一下目录下的文件名，以便能正确生成新文件的序号
-            Map<String, Integer> fileNameTempMap = new HashMap<String, Integer>();
-            for (DBScriptInfoForFileGenerate dbScriptInfoForFileGenerate : filteredDBScriptInfoForFileGenerateList) {
-                String applier = dbScriptInfoForFileGenerate.getApplier();
-                String dbname = dbScriptInfoForFileGenerate.getDbname();
-
-                //生成文件名
-                String newFileName = generateFileName(fileNameList, applier, dbname, fileNameTempMap);
-                //生成文件
-                String newFilePath = newDir + "/" + newFileName;
-                List<String> sqlList = dbScriptInfoForFileGenerate.getSubsqlList();
-                List<String> adjustedSqlList = new ArrayList<String>();
-                if (sqlList != null) {
-                    for (String sql : sqlList) {
-                        sql += ";";
-                        adjustedSqlList.add(sql);
+            //对List<DBScriptInfoForFileGenerate> filteredDBScriptInfoForFileGenerateList中的内容根据dbname进行分组合并
+            //目的是为了生成合并的文件
+            Map<String, List<DBScriptInfoForFileGenerate>> dbScriptInfoForFileGenerateListMap = mergeInfos(filteredDBScriptInfoForFileGenerateList);
+            if (dbScriptInfoForFileGenerateListMap != null) {
+                for (Map.Entry<String, List<DBScriptInfoForFileGenerate>> entry : dbScriptInfoForFileGenerateListMap.entrySet()) {
+                    String dbname = entry.getKey();
+                    List<DBScriptInfoForFileGenerate> dbScriptInfoForFileGenerateList = entry.getValue();
+                    //生成文件名
+                    String newFileName = generateFileName(fileNameList, dbname);
+                    //生成文件
+                    String newFilePath = newDir + "/" + newFileName;
+                    List<String> sqlList = new ArrayList<String>();
+                    if (dbScriptInfoForFileGenerateList != null) {
+                        for (DBScriptInfoForFileGenerate dbScriptInfoForFileGenerate : dbScriptInfoForFileGenerateList) {
+                            sqlList.add("/*****************************************************************************");
+                            sqlList.add("* 申请者：" + dbScriptInfoForFileGenerate.getApplier());
+                            sqlList.add("* 描述：  " + dbScriptInfoForFileGenerate.getDescription());
+                            sqlList.add("*****************************************************************************/");
+                            List<String> subsqlList = dbScriptInfoForFileGenerate.getSubsqlList();
+                            if (subsqlList != null) {
+                                for (String subsql : subsqlList) {
+                                    subsql += ";";
+                                    sqlList.add(subsql);
+                                }
+                            }
+                            sqlList.add(" ");
+                        }
                     }
+                    FileUtil.writeTxtFile(newFilePath, sqlList);
+                    resultList.add(newFilePath);
                 }
-                FileUtil.writeTxtFile(newFilePath, adjustedSqlList);
-                resultMap.put(newFilePath, dbScriptInfoForFileGenerate);
             }
+
         }
 
+        return resultList;
+    }
+
+    /**
+     * 对List<DBScriptInfoForFileGenerate> filteredDBScriptInfoForFileGenerateList中的内容根据dbname进行分组合并,
+     * 目的是为了生成合并的文件
+     * @param dbScriptInfoForFileGenerateList
+     * @return
+     */
+    private Map<String, List<DBScriptInfoForFileGenerate>> mergeInfos(List<DBScriptInfoForFileGenerate> dbScriptInfoForFileGenerateList) {
+        Map<String, List<DBScriptInfoForFileGenerate>> resultMap = new HashMap<String, List<DBScriptInfoForFileGenerate>>();
+        if (dbScriptInfoForFileGenerateList != null) {
+            for (DBScriptInfoForFileGenerate dbScriptInfoForFileGenerate : dbScriptInfoForFileGenerateList) {
+                String dbname = dbScriptInfoForFileGenerate.getDbname();
+                List<DBScriptInfoForFileGenerate> dbScriptInfoForFileGenerateList1 = resultMap.get(dbname);
+                if (dbScriptInfoForFileGenerateList1 == null) {
+                    dbScriptInfoForFileGenerateList1 = new ArrayList<DBScriptInfoForFileGenerate>();
+                }
+                dbScriptInfoForFileGenerateList1.add(dbScriptInfoForFileGenerate);
+                resultMap.put(dbname, dbScriptInfoForFileGenerateList1);
+            }
+        }
         return resultMap;
     }
 
@@ -197,41 +227,35 @@ public class CreateDbscriptFileHandler extends AbstractHandler {
     }
 
     /**
-     * 根据这三个参数生成文件名
+     * 根据当前目录下的已有文件和当前的数据库名称来生成文件名
      * @param fileNameList
-     * @param applier
      * @param dbname
      * @return
      */
-    private String generateFileName(List<String> fileNameList, String applier, String dbname, Map<String, Integer> fileNameTempMap) {
-        Integer seq = fileNameTempMap.get(applier + "_" + dbname);
-        if (seq == null) {
-            int maxSeq = 0;
-            if (fileNameList != null) {
-                for (String fileName : fileNameList) {
-                    if (fileName.indexOf(applier + "_" + dbname) == 0) {
-                        //如果找到了有前缀同名的文件，然后先去除文件的扩展名
-                        int dotPostion = fileName.indexOf(".");
-                        if (dotPostion > (applier + "_" + dbname).length()) {
-                            fileName = fileName.substring(0, dotPostion);
-                            String seqString = fileName.substring((applier + "_" + dbname).length() + 1);
-                            int seqInt = Integer.parseInt(seqString);
-                            if (seqInt > maxSeq) {
-                                maxSeq = seqInt;
-                            }
+    private String generateFileName(List<String> fileNameList, String dbname) {
+        int maxSeq = 0;
+        if (fileNameList != null) {
+            for (String fileName : fileNameList) {
+                if (fileName.indexOf(dbname + "_") == 0) {
+                    //如果找到了有前缀同名的文件，然后先去除文件的扩展名
+                    int dotPostion = fileName.indexOf(".");
+                    if (dotPostion > (dbname + "_").length()) {
+                        fileName = fileName.substring(0, dotPostion);
+                        String seqString = fileName.substring(dbname.length() + 1);
+                        int seqInt = Integer.parseInt(seqString);
+                        if (seqInt > maxSeq) {
+                            maxSeq = seqInt;
                         }
                     }
                 }
             }
-            fileNameTempMap.put(applier + "_" + dbname, maxSeq + 1);
-        } else {
-            fileNameTempMap.put(applier + "_" + dbname, seq.intValue() + 1);
         }
-        String strMaxSeq = String.valueOf(fileNameTempMap.get(applier + "_" + dbname));
-        String newFileName = applier + "_" + dbname + "_" + StringOperUtil.padLeft(strMaxSeq, 4, "0") + ".sql";
+        String strMaxSeq = String.valueOf(maxSeq + 1);
+        String newFileName = dbname + "_" + StringOperUtil.padLeft(strMaxSeq, 4, "0") + ".sql";
 
         return newFileName;
     }
+
     /**
      * 过滤出属于指定父目录的脚本
      * @param parentDir
